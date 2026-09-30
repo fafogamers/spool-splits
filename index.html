@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>Spool Splits</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,sans-serif;margin:0;padding:16px 16px 40px;background:#f3f4f6;color:#111}
+  h1{font-size:1.3rem;margin:0 0 4px}
+  p{color:#6b7280;margin:0 0 14px;font-size:.92rem}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:14px;margin-bottom:12px}
+  label{display:block;font-size:.75rem;font-weight:700;color:#6b7280;margin:8px 0 4px}
+  input,select,textarea,button{font-size:16px;width:100%;padding:12px;border:1px solid #d1d5db;border-radius:8px;box-sizing:border-box}
+  button{background:#1d4ed8;color:#fff;border:0;font-weight:700;margin-top:10px}
+  button.sec{background:#fff;color:#111;border:1px solid #d1d5db}
+  .row{display:flex;gap:8px}
+  .row>*{flex:1}
+  .out{margin-top:10px;white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;font-size:.85rem;background:#f8fafc;border-radius:8px;padding:10px}
+  .ok{background:#d1fae5}
+  .warn{background:#fef3c7}
+</style>
+</head>
+<body>
+<h1>Spool Splits</h1>
+<p>Type here in Safari. Add to Home Screen after it works.</p>
+<div class="card">
+  <label>Job</label>
+  <input id="job" placeholder="Job / traveler" />
+  <label>Construction</label>
+  <select id="con">
+    <option value="1x7">1x7 — 1 center + 6 outers</option>
+    <option value="7x7">7x7</option>
+    <option value="1x19">1x19 — 1x7 center + 12 outers</option>
+    <option value="7x19">7x19</option>
+    <option value="19x7">19x7</option>
+    <option value="1x19+8">1x19+8(1x7)</option>
+  </select>
+  <div class="row">
+    <div><label>Match window ft</label><input id="tol" type="number" value="500" /></div>
+    <div><label>Wrap loss %</label><input id="loss" type="number" value="3" step="0.5" /></div>
+  </div>
+  <div class="row">
+    <div><label>Min footage</label><input id="min" type="number" placeholder="0" /></div>
+    <div><label>All material in?</label>
+      <select id="allin"><option value="yes">Yes</option><option value="no">No — 80% core</option></select>
+    </div>
+  </div>
+</div>
+<div class="card">
+  <b>Predict from pounds</b>
+  <div class="row">
+    <div><label>Pounds in</label><input id="lbs" type="number" /></div>
+    <div><label>ft/lb</label><input id="ftlb" type="number" step="0.01" /></div>
+  </div>
+  <button type="button" onclick="predict()">Calculate prediction</button>
+  <div id="pred" class="out" hidden></div>
+</div>
+<div class="card">
+  <b>Build loads from spool footage</b>
+  <label>One footage per line (or ID, footage)</label>
+  <textarea id="list" rows="8">8700
+12000
+3500
+7200
+1800</textarea>
+  <button type="button" onclick="build()">Build 1x7 loads</button>
+  <button class="sec" type="button" onclick="document.getElementById('list').value=''">Clear list</button>
+  <div id="loads" class="out" hidden></div>
+</div>
+<script>
+const W = { "1x7":7, "7x7":49, "1x19":19, "7x19":133, "19x7":133, "1x19+8":75 };
+function num(id){ const x=parseFloat(document.getElementById(id).value); return isFinite(x)?x:0; }
+function fmt(n){ return Math.round(n).toLocaleString()+"'"; }
+function predict(){
+  const con=document.getElementById("con").value;
+  const lbs=num("lbs"), ftlb=num("ftlb"), loss=num("loss")/100;
+  const box=document.getElementById("pred");
+  if(!lbs||!ftlb){ box.hidden=false; box.className="out warn"; box.textContent="Enter pounds and ft/lb."; return; }
+  const rw=lbs*ftlb, wires=W[con], y=1-loss;
+  let lines=["Round wire: "+fmt(rw), "Wires in construction: "+wires];
+  if(con==="1x7") lines.push("Predicted 1x7: "+fmt(rw/7*y)+"  (RW\u00f77\u00d7"+(y.toFixed(2))+")");
+  if(con==="7x7") lines.push("Core 1x7 needed: "+fmt(rw*y/49)+"  (RW\u00d7yield\u00f749)");
+  if(con==="1x19"){ lines.push("Est. 1x19 / outer target: "+fmt(rw/19)); lines.push("Core 1x7 cover \u2248 "+fmt(rw/19*(1+loss))); }
+  if(con==="7x19") lines.push("Center 1x7 of center 1x19: "+fmt(rw/133*y));
+  if(con==="19x7") lines.push("Est. 19x7: "+fmt(rw/133));
+  if(con==="1x19+8") lines.push("Core 1x7 of center 1x19: "+fmt(rw/78)+"  (RW\u00f778)");
+  if(document.getElementById("allin").value==="no") lines.push("Material not all in \u2014 plan ~80%: "+fmt((rw/wires*y)*0.8));
+  const min=num("min");
+  if(min) lines.push((rw/wires*y)<min ? "SHORT of min "+fmt(min) : "Clears min "+fmt(min));
+  box.hidden=false; box.className="out ok"; box.textContent=lines.join("\n");
+}
+function parseList(){
+  return document.getElementById("list").value.split(/\n+/).map(s=>s.trim()).filter(Boolean).map((line,i)=>{
+    const p=line.split(/[,\t; ]+/).filter(Boolean);
+    if(p.length===1) return {id:"S"+(i+1), ft:parseFloat(p[0])};
+    if(/^\d/.test(p[0])) return {id:"S"+(i+1), ft:parseFloat(p[0])};
+    return {id:p[0], ft:parseFloat(p[1])};
+  }).filter(s=>s.ft>0);
+}
+function build(){
+  const spools=parseList(), tol=num("tol")||500, loss=num("loss")/100;
+  const box=document.getElementById("loads");
+  if(!spools.length){ box.hidden=false; box.className="out warn"; box.textContent="Paste footage first."; return; }
+  const sorted=[...spools].sort((a,b)=>b.ft-a.ft);
+  const used=new Set(), loads=[];
+  for(let i=0;i<sorted.length;i++){
+    if(used.has(i)) continue;
+    const g=[i];
+    for(let j=i+1;j<sorted.length && g.length<7;j++){
+      if(!used.has(j) && sorted[i].ft-sorted[j].ft<=tol) g.push(j);
+    }
+    if(g.length===7){ g.forEach(k=>used.add(k)); loads.push(g.map(k=>sorted[k])); }
+  }
+  const left=sorted.filter((_,i)=>!used.has(i));
+  let text="Spools: "+spools.length+"\nWhole 7-packs within "+tol+" ft: "+loads.length+"\n";
+  loads.forEach((L,n)=>{
+    const lens=L.map(s=>s.ft).sort((a,b)=>a-b);
+    const run=lens[0], spread=lens[6]-lens[0];
+    text+="\nLoad "+(n+1)+"  run \u2248 "+fmt(run)+"  spread "+fmt(spread)+"\n";
+    text+="  Center "+L.reduce((a,b)=>a.ft>b.ft?a:b).id+" "+fmt(Math.max(...lens))+"\n";
+    lens.forEach((ft,i)=>text+="  "+(i===6?"C ":"O"+(i+1)+" ")+fmt(ft)+"\n");
+  });
+  if(left.length){
+    text+="\nLeftovers:\n"+left.map(s=>"  "+s.id+"  "+fmt(s.ft)).join("\n")+"\n";
+    text+=ideas(left,tol);
+  }
+  const short=loads.reduce((s,L)=>s+Math.min(...L.map(x=>x.ft)),0);
+  if(loads.length) text+="\nSum of shortest-in-load: "+fmt(short)+"\n\u2248 1x7 after wrap: "+fmt(short*(1-loss));
+  box.hidden=false; box.className="out ok"; box.textContent=text;
+}
+function ideas(spools,tol){
+  const s=[...spools].sort((a,b)=>b.ft-a.ft);
+  const out=[];
+  for(let i=0;i<s.length;i++){
+    for(let j=i+1;j<s.length;j++){
+      for(const di of [2,3,4]) for(const dj of [2,3,4]){
+        if(di+dj>7) continue;
+        const a=s[i].ft/di, b=s[j].ft/dj;
+        if(Math.abs(a-b)<=tol){
+          const need=7-di-dj;
+          const third=s.find((p,k)=>k!==i&&k!==j&&Math.abs(p.ft-a)<=tol);
+          if(need===0) out.push(s[i].id+" \u00f7"+di+" = "+fmt(a)+" with "+s[j].id+" \u00f7"+dj+" = "+fmt(b));
+          else if(third&&need===1) out.push(s[i].id+" \u00f7"+di+", "+s[j].id+" \u00f7"+dj+", plus "+third.id+" @ "+fmt(third.ft));
+        }
+      }
+    }
+  }
+  return out.length? "\nSplit ideas (\u00f72/3/4):\n"+[...new Set(out)].slice(0,6).map(x=>"  "+x).join("\n")+"\n":"\nNo automatic \u00f72/3/4 match in window.\n";
+}
+</script>
+</body>
+</html>
